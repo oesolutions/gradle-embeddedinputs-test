@@ -1,0 +1,85 @@
+buildscript {
+    repositories {
+        jcenter()
+    }
+    dependencies {
+        classpath 'commons-io:commons-io:2.5'
+    }
+}
+
+task embeddedInputs( type: EmbeddedInputs ) {
+    sourceFile = file( 'src/one.src' )
+    outputDir = new File( buildDir, 'compiled' )
+}
+
+
+
+
+class EmbeddedInputs extends DefaultTask {
+    def m_cachedDeps = null
+
+    def sourceFile
+
+    def outputDir
+
+    @InputFile
+    File getSrcFile() {
+        return project.file( sourceFile )
+    }
+
+    List<File> findDeps( File src ) {
+        logger.info "Processing ${src} for dependencies"
+        return src.readLines().findResults { line ->
+            def result = ( line =~ /# dep:(.*)/ )
+            if( result.matches() ) {
+                return new File( src.parent, result[0][1] )
+            }
+            return null
+        }
+    }
+        
+    @InputFiles
+    List<File> getDependencies() {
+        /*
+         * Since calculating this might be expensive, grab a cached result if possible (Gradle will call this
+         * method more than once).
+         * Duplicate dependency detection not present.
+         */
+        if( !m_cachedDeps ) {
+            m_cachedDeps = []
+            def toProcess = [srcFile]
+            while( !toProcess.empty ) {
+                def current = toProcess.pop()
+                def deps = findDeps( current )
+                toProcess.addAll( deps )
+                m_cachedDeps.addAll( deps )
+            }
+        }
+        return m_cachedDeps
+    }
+
+    @OutputFile
+    File getOutFile() {
+        return new File( project.file( outputDir ), "${org.apache.commons.io.FilenameUtils.getBaseName( srcFile.name )}.out" )
+    }
+
+    @TaskAction
+    void compile() {
+        logger.lifecycle "Compiling ${inputs.files as List} into ${outFile}"
+
+        outFile.parentFile.mkdirs()
+
+        outFile.withWriter() { writer ->
+            inputs.files.each {
+                logger.info "Processing ${it}"
+
+                it.readLines().findResults { line ->
+                    if( !line.startsWith( '#' ) ) {
+                        writer.println line
+                    }
+                }
+            }
+        }
+    }
+}
+
